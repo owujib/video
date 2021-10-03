@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Button,
   Image,
   View,
   Platform,
@@ -10,16 +9,22 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Button from '../components/Button';
+import axios from 'axios';
+import * as FileSystem from 'expo-file-system';
 
-import Slider from '@react-native-community/slider';
+// import Slider from '@react-native-community/slider';
 
-export default function ImageScreen() {
+export default function ImageScreen(props) {
   const [image, setImage] = useState(null);
   const [video, setVideo] = useState(null);
   const [status, setStatus] = useState({});
   const [durationTime, setDurationTime] = useState('');
   const [muted, setMuted] = useState(false);
-  const videoRef = useRef();
+  const [datas, setDatas] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const videoRef = useRef(null);
 
   const [position, setPosition] = useState(0);
 
@@ -30,9 +35,9 @@ export default function ImageScreen() {
           await ImagePicker.requestMediaLibraryPermissionsAsync();
 
         await ImagePicker.requestCameraPermissionsAsync();
-        // if (status !== 'granted') {
-        //   alert('Sorry, we need camera roll permissions to make this work!');
-        // }
+        if (status !== 'granted') {
+          alert('Sorry, we need camera roll permissions to make this work!');
+        }
       }
     })();
   }, []);
@@ -46,22 +51,6 @@ export default function ImageScreen() {
     },
     [position]
   );
-
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      allowsMultipleSelection: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
-
-    console.log(result);
-
-    if (!result.cancelled) {
-      setImage(result.uri);
-    }
-  };
 
   const pickVideo = async () => {
     // let result = await ImagePicker.launchImageLibraryAsync({
@@ -77,90 +66,108 @@ export default function ImageScreen() {
       quality: 1,
     });
 
-    console.log(result);
-
     if (result.cancelled !== true) {
-      setVideo(result.uri);
+      const data = new FormData();
+
+      let a = FileSystem.getInfoAsync(result.uri)
+        .then((res) => console.log('a', res))
+        .catch((err) => console.log('a Err', err));
+
+      // data.append('video', {
+      //   name: 'file.mov',
+      //   type: `video/${result.uri.split('.')[1]}`,
+      //   path: result.uri,
+      //   // Platform.OS === 'ios'
+      //   //   ? result.uri.replace('file://', '')
+      //   //   : result.uri,
+      // });
+
+      setDatas({ ...result });
     }
   };
-  // console.log(status);
+
+  const upload = () => {
+    FileSystem.uploadAsync(
+      'https://lovely-test.herokuapp.com/api/user/add/files',
+      datas.uri,
+      {
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: 'video',
+        // parameters: {},
+        httpMethod: 'POST',
+        mimeType: `video/${datas.uri.split('.')[1]}`,
+        headers: {
+          Authorization: `Bearer ${props.user?.token}`,
+        },
+        sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
+      }
+    )
+      .then((res) => {
+        setLoading(!loading);
+        console.log(res?.body);
+        props.navigation.navigate('Videos');
+      })
+      .catch((err) => {
+        setLoading(!loading);
+        console.log(err);
+      });
+  };
   return (
     <>
       <SafeAreaView
         style={{
-          flex: 0.7,
+          flex: 1,
           alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'green',
+          justifyContent: 'start',
           width: '100%',
         }}
       >
-        <Button title="Pick an image from camera roll" onPress={pickImage} />
-        {image && (
-          <Image source={{ uri: image }} style={{ width: 200, height: 200 }} />
-        )}
-        <Button title="Pick a video" onPress={pickVideo} />
-        {video && (
+        <Text>{props.user?.email}</Text>
+        <View style={{ width: '50%' }}>
+          <Button text="pick a video" onPress={pickVideo} />
+        </View>
+        {/* {video && ( */}
+        {datas?.uri && (
           <>
-            <View style={{ flex: 0.7, width: '100%', position: 'relative' }}>
-              <Text
-                style={{
-                  zIndex: 2,
-                  position: 'absolute',
-                  top: 19,
-                  color: '#000',
-                  fontSize: 40,
-                  fontWeight: '600',
-                }}
-              >
-                {durationTime}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setMuted(!muted);
-                }}
-                style={{
-                  zIndex: 2,
-                  position: 'absolute',
-                  top: 19,
-                  left: '90%',
-                  width: 100,
-                  height: 100,
-                  backgroundColor: 'pink',
-                  color: '#000',
-                  fontSize: 40,
-                  fontWeight: '600',
-                }}
-              >
-                <Text> 🔇</Text>
-              </TouchableOpacity>
+            <View>
               <Video
-                style={{ width: '100%', height: 400, zIndex: 1 }}
-                source={{ uri: video }}
-                isLooping={true}
                 ref={videoRef}
-                onPlaybackStatusUpdate={(status) => {
-                  setStatus(() => status);
-                  var ms = status.positionMillis,
-                    min = Math.floor((ms / 1000 / 60) << 0),
-                    sec = Math.floor((ms / 1000) % 60);
-
-                  console.log(min + ':' + sec);
-                  setDurationTime(`${min}:${sec}`);
+                style={{ width: '100%', height: 400 }}
+                source={{
+                  uri: 'http://d23dyxeqlo5psv.cloudfront.net/big_buck_bunny.mp4',
                 }}
-                shouldPlay={true}
-                isMuted={muted}
-                resizeMode="cover"
+                useNativeControls
+                resizeMode="contain"
+                isLooping
+                onPlaybackStatusUpdate={(status) => setStatus(() => status)}
               />
-              <Slider
-                style={{ width: 200, height: 40 }}
-                minimumValue={0}
-                maximumValue={20000}
-                step={200}
-                minimumTrackTintColor="#FFFFFF"
-                maximumTrackTintColor="#000000"
-                onValueChange={onPositionChange}
-                thumbImage={{ uri: image }}
+            </View>
+            <View style={{ width: '50%' }}>
+              <Button
+                text="upload video"
+                isLoading={loading}
+                onPress={() => {
+                  setLoading(!loading);
+                  upload();
+                  // axios
+                  //   .post(
+                  //     'https://lovely-test.herokuapp.com/api/user/add/files',
+                  //     datas,
+                  //     {
+                  //       headers: {
+                  //         Authorization: `Bearer ${props.user?.token}`,
+                  //       },
+                  //     }
+                  //   )
+                  //   .then(({ data }) => {
+                  //     console.log('Response', data);
+                  //     // setVideo(res);
+                  //   })
+                  //   .catch((err) => {
+                  //     console.log('ERR', err?.response.data);
+                  //     setDatas(null);
+                  //   });
+                }}
               />
             </View>
           </>
